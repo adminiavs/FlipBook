@@ -1,0 +1,17 @@
+{
+  "name": "real3d-flipbook",
+  "version": "1.0.0",
+  "description": "Real3D Flipbook WordPress Plugin",
+  "main": "real3d-flipbook.php",
+  "scripts": {
+    "build": "npm run build-js && npm run build-css",
+    "build-js": "terser js/edit_flipbook_post.src.js -o js/edit_flipbook_post.js --compress --mangle",
+    "build-css": "echo 'CSS minification can be added here if needed'",
+    "watch": "echo 'Watch mode can be implemented if needed'"
+  },
+  "devDependencies": {
+    "terser": "^5.16.0"
+  },
+  "author": "",
+  "license": "GPL-2.0-or-later"
+}

@@ -17,16 +17,45 @@ function r3dfb_setDefaults()
 
 function r3d_sanitize_array($input)
 {
-	foreach ($input as $key => $value) {
-		if (is_array($value)) {
-			$input[$key] = r3d_sanitize_array($value); // Recursive call
-		} else {
-			// Use wp_kses_post for HTML content, sanitize_text_field for plain text
-			// Choose based on key name - HTML fields vs plain text fields
-			$input[$key] = wp_kses_post($value);
+	// Define HTML fields that should use wp_kses_post instead of sanitize_text_field
+	$html_fields = [
+		'lightboxThumbnailUrlCSS',
+		'lightboxContainerCSS',
+		'lightboxTextCSS',
+		'lightboxThumbnailInfoCSS',
+		'logoCSS',
+		'menuBackground',
+		'menuShadow',
+		'menu2Background',
+		'menu2Shadow',
+		'btnShadow',
+		'btnTextShadow',
+		'btnBorder',
+		'arrowTextShadow',
+		'arrowBorder',
+		'closeBtnTextShadow',
+		'closeBtnBorder',
+		'floatingBtnShadow',
+		'floatingBtnTextShadow',
+		'floatingBtnBorder',
+		'backgroundPattern',
+		'backgroundImage',
+		'lightboxBackgroundPattern',
+		'lightboxBackgroundImage',
+		'htmlContent', // For page content
+	];
+
+	return map_deep($input, function($value, $key = null) use ($html_fields) {
+		if (is_scalar($value)) {
+			// Use wp_kses_post for HTML fields, sanitize_text_field for plain text
+			if ($key && in_array($key, $html_fields, true)) {
+				return wp_kses_post($value);
+			} else {
+				return sanitize_text_field($value);
+			}
 		}
-	}
-	return $input;
+		return $value;
+	});
 }
 
 add_action('wp_ajax_r3d_save_general', 'r3d_save_general_callback');
