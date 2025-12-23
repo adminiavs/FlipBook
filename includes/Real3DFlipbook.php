@@ -34,7 +34,7 @@ class Real3DFlipbook
 			'r3d' => ['name' => 'Real3D Flipbook'],
 			'addons' => ['name' => 'Addons Bundle'],
 			'pefrf' => ['name' => 'Page Editor Addon', 'class' => 'R3D_Page_Editor'],
-			'ptfrf' => ['name' => 'PDF Tools Addon', 'class' => 'R3D_PDF_Tools'],
+			'ptfrf' => ['name' => 'PDF Tools', 'class' => 'R3D_PDF_Tools'], // Now built-in
 			'bs' => ['name' => 'Bookshelf Addon', 'class' => 'Bookshelf_Addon'],
 			'wafrf' => ['name' => 'WooCommerce Addon', 'class' => 'R3D_Woo'],
 			'eafrf' => ['name' => 'Elementor Addon', 'class' => 'Elementor_Real3D_Flipbook'],
@@ -90,6 +90,13 @@ class Real3DFlipbook
 				wp_localize_script('real3d-flipbook-global', 'flipbookOptions_global', $this->flipbook_global);
 			}
 		}
+	}
+
+	public function admin_scripts()
+	{
+		$version = $this->PLUGIN_VERSION;
+		// Register PDF tools scripts.
+		wp_register_script('r3d-pdf-to-jpg', $this->PLUGIN_DIR_URL . 'js/pdf-to-jpg.js', array('jquery'), $version);
 	}
 
 	public function admin_enqueue_scripts($hook_suffix)
@@ -424,46 +431,9 @@ class Real3DFlipbook
 			}
 		}
 
-		if (!defined('R3D_PDF_TOOLS_VERSION')) {
-			add_action('admin_notices', array($this, 'admin_notice_get_pdf_tools'));
-			return;
-		}
+		// PDF Tools is now integrated into main plugin
 	}
 
-	public function admin_notice_get_pdf_tools()
-	{
-		global $pagenow, $post_type;
-		$admin_pages = ['edit.php', 'post.php', 'post-new.php'];
-
-		if (in_array($pagenow, $admin_pages) && $post_type == 'r3d') {
-			$message = sprintf(
-				/* translators: %1$s is replaced with the anchor HTML for the "PDF Tools Addon" link. */
-				esc_html__(
-					'Optimize Real3D PDF Flipbooks with %1$s by converting PDF to images and JSON. Speed up the flipbook loading and secure the PDF.',
-					'real3d-flipbook'
-				),
-				sprintf(
-					'<a href="%1$s" style="text-decoration: none; font-weight: bold;" target="_blank">%2$s</a>',
-					esc_url('https://real3dflipbook.com/pdf-tools-addon/?ref=wp'),
-					esc_html__('PDF Tools Addon for Real3D Flipbook', 'real3d-flipbook')
-				)
-			);
-
-			printf(
-				'<div class="notice notice-warning is-dismissible"><p>%s</p></div>',
-				wp_kses(
-					$message,
-					[
-						'a' => [
-							'href' => [],
-							'style' => [],
-							'target' => []
-						]
-					]
-				)
-			);
-		}
-	}
 
 
 	protected function add_actions()
@@ -497,6 +467,16 @@ class Real3DFlipbook
 		}
 
 		add_action('wp_ajax_r3d_last_page', array($this,  'ajax_last_page'));
+
+		// PDF Tools AJAX hooks
+		add_action('wp_ajax_r3d_update_flipbook', array($this, 'update_pdf_tools_flipbook'));
+		add_action('wp_ajax_nopriv_r3d_update_flipbook', array($this, 'update_pdf_tools_flipbook'));
+		add_action('wp_ajax_r3d_get_flipbooks', array($this, 'get_pdf_tools_flipbooks'));
+		add_action('wp_ajax_nopriv_r3d_get_flipbooks', array($this, 'get_pdf_tools_flipbooks'));
+		add_action('wp_ajax_r3d_get_highest_id', array($this, 'get_pdf_tools_highest_id'));
+		add_action('wp_ajax_nopriv_r3d_get_highest_id', array($this, 'get_pdf_tools_highest_id'));
+		add_action('wp_ajax_r3d_pdf_tools_save', array($this, 'save_pdf_tools_page'));
+		add_action('wp_ajax_nopriv_r3d_pdf_tools_save', array($this, 'save_pdf_tools_page'));
 
 		add_filter('single_template', array($this, 'load_r3d_template'));
 		add_filter('taxonomy_template', array($this, 'load_r3d_taxonomy_template'));
@@ -1458,6 +1438,214 @@ class Real3DFlipbook
 		}
 
 		exit;
+	}
+
+	public function save_pdf_tools_page() {
+		check_ajax_referer('saving-real3d-flipbook', 'security');
+
+		if (!current_user_can('upload_files')) {
+			wp_die('You do not have permission to upload files.');
+		}
+
+		$id = intval($_POST['id']);
+		if ($id <= 0) {
+			wp_die('Invalid book ID.');
+		}
+
+		$book = get_option('real3dflipbook_' . $id);
+		if (!$book) {
+			wp_die('Book not found.');
+		}
+
+		$upload_dir = wp_upload_dir();
+		$booksFolder = $upload_dir['basedir'] . '/real3d-flipbook/';
+		$bookFolder = $booksFolder . 'flipbook_' . $id . '/';
+		$bookUrl = $upload_dir['baseurl'] . '/real3d-flipbook/flipbook_' . $id . '/';
+
+		if (!file_exists($booksFolder) && !mkdir($booksFolder, 0755, true)) {
+			wp_die('Failed to create books directory.');
+		}
+
+		$page = intval($_POST['page']);
+		if ($page === 1 && file_exists($bookFolder)) {
+			$files = glob($bookFolder . "*");
+			if ($files) {
+				foreach ($files as $file) {
+					if (is_file($file)) {
+						unlink($file);
+					}
+				}
+			}
+		}
+
+		if (!file_exists($bookFolder) && !mkdir($bookFolder, 0755, true)) {
+			wp_die('Failed to create book folder.');
+		}
+
+		$hashedFileName = md5($page . time()); // Unique file name
+		// $hashedFileName = $page; // Unique file name
+		$fileBasePath = $bookFolder . $hashedFileName;
+
+		if (empty($_FILES['src']['tmp_name']) || empty($_FILES['thumb']['tmp_name'])) {
+			wp_die('Image files not received.');
+		}
+
+		$srcPath = $_FILES['src']['tmp_name'];
+		$thumbPath = $_FILES['thumb']['tmp_name'];
+
+		if (!move_uploaded_file($srcPath, $fileBasePath . '.jpg')) {
+			wp_die('Failed to save the image file.');
+		}
+
+		if (!move_uploaded_file($thumbPath, $bookFolder . 'thumb' . $hashedFileName . '.jpg')) {
+			wp_die('Failed to save the thumbnail file.');
+		}
+
+		$jsonData = stripslashes($_POST['json']);
+		if (!file_put_contents($fileBasePath . '.json', $jsonData)) {
+			wp_die('Failed to write JSON data.');
+		}
+
+		$response = [
+			'src' => $bookUrl . $hashedFileName . '.jpg',
+			'thumb' => $bookUrl . 'thumb' . $hashedFileName . '.jpg',
+			'json' => $bookUrl . $hashedFileName . '.json',
+		];
+
+		echo json_encode($response);
+		wp_die();
+	}
+
+	public function update_pdf_tools_flipbook()
+	{
+
+		check_ajax_referer('saving-real3d-flipbook', 'security');
+
+		$json = stripslashes(sanitize_text_field($_POST['pages']));
+		$pages = json_decode($json, true); // decodes to Array instead of Object
+		// $outline = json_decode(stripslashes($_POST['outline']), true);
+		$id = sanitize_text_field($_POST['id']);
+
+		$flipbook = get_option('real3dflipbook_' . $id);
+
+		if (!$flipbook) {
+
+			$flipbook = array(
+				"id" => $id,
+				"name" => "flipbook " . $id,
+				"pages" => array(),
+				"date" => current_time('mysql'),
+				"status" => "draft"
+			);
+
+			$args = array(
+				'post_title' => $flipbook["name"],
+				'post_type' => 'r3d',
+				'post_status'   => 'publish',
+				'meta_input' => array(
+					'flipbook_id' => $id
+				)
+			);
+
+			$args['post_date'] = $flipbook['date'];
+
+
+			$real3dflipbooks_ids = get_option('real3dflipbooks_ids');
+
+			$postId = wp_insert_post($args);  // array real3dflipbook_ids is updated here
+
+			$flipbook["post_id"] = $postId;
+		}
+
+		if (!isset($flipbook['pages']))
+			$flipbook['pages'] = array();
+
+		unset($flipbook['pdfUrl']);
+
+		foreach ($pages as $index => $page) {
+			if (!isset($flipbook['pages'][$index]))
+				$flipbook['pages'][$index] = array();
+			$flipbook['pages'][$index]['src'] = $page['src'];
+			$flipbook['pages'][$index]['thumb'] = $page['thumb'];
+			$flipbook['pages'][$index]['json'] = $page['json'];
+		}
+
+		$flipbook['lightboxThumbnailUrl'] = $pages[0]['thumb'];
+
+		// if($outline) $flipbook['tableOfContent'] = $outline;
+
+		update_option('real3dflipbook_' . $flipbook['id'], $flipbook);
+
+		$res = array(
+			'id' => $flipbook['id'],
+			'post_id' => $flipbook['post_id'],
+		);
+
+		echo json_encode($res);
+
+		wp_die(); // this is required to terminate immediately and return a proper response
+	}
+
+	public function get_pdf_tools_flipbooks()
+	{
+
+		check_ajax_referer('saving-real3d-flipbook', 'security');
+
+		$books = $this->get_pdf_tools_flipbook_list();
+
+		echo json_encode($books);
+
+		wp_die();
+	}
+
+	public function get_pdf_tools_highest_id()
+	{
+
+		check_ajax_referer('saving-real3d-flipbook', 'security');
+
+		$real3dflipbooks_ids = get_option('real3dflipbooks_ids');
+		if (!$real3dflipbooks_ids) {
+			$real3dflipbooks_ids = array();
+		}
+		$bookId = 0;
+
+		foreach ($real3dflipbooks_ids as $id) {
+			if ((int)$id > $bookId) {
+				$bookId = (int)$id;
+			}
+		}
+
+		echo $bookId;
+
+		wp_die();
+	}
+
+	protected function get_pdf_tools_flipbook_list()
+	{
+		$real3dflipbooks_ids = get_option('real3dflipbooks_ids');
+		if (!$real3dflipbooks_ids) {
+			$real3dflipbooks_ids = array();
+		}
+		$books = array();
+
+		foreach ($real3dflipbooks_ids as $id) {
+
+			$book = get_option('real3dflipbook_' . $id);
+
+			if ($book && isset($book['pdfUrl'])) {
+
+				$b = array(
+					'id' => $book['id'],
+					'name' => $book['name'],
+					'date' => $book['date'],
+					'pdfUrl' => $book['pdfUrl']
+				);
+
+				array_push($books, $b);
+			}
+		}
+
+		return $books;
 	}
 
 
