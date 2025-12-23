@@ -807,7 +807,9 @@ class Real3DFlipbook
 
 				$flipbook['name'] = $title;
 				$flipbook['post_id'] = $post_ID;
-				$flipbook['viewMode'] = !$flipbook['webgl'] ? $flipbook['viewMode'] : $flipbook['webgl'];
+				if (!empty($flipbook['webgl'])) {
+					$flipbook['viewMode'] = 'webgl';
+				}
 				if (!$flipbook['viewMode']) {
 					unset($flipbook['viewMode']);
 				}
@@ -1354,6 +1356,11 @@ class Real3DFlipbook
 	{
 		if (!wp_doing_ajax()) {
 			wp_die(esc_html__('Invalid request.', 'real3d-flipbook'), esc_html__('Error', 'real3d-flipbook'), ['response' => 403]);
+		}
+
+		// Check user capabilities - require at least read access
+		if (!current_user_can('read')) {
+			wp_die(esc_html__('Insufficient permissions.', 'real3d-flipbook'), esc_html__('Error', 'real3d-flipbook'), ['response' => 403]);
 		}
 
 		// Validate the origin
@@ -2083,13 +2090,7 @@ class Real3DFlipbook
 			}
 		}
 		$flipbook['notes'] = $notesToShow;
-		
 
-		
-		$flipbook[substr('settings', 0, 1)] = substr($arrg, 0, 8);
-		
-
-		
 		if ($g['resumeReading'] == 'true' && is_user_logged_in()) {
 			$userID = get_current_user_id();
 			$meta_key = 'real3dflipbook_last_page_' . $id;

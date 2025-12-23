@@ -19,9 +19,10 @@ function r3d_sanitize_array($input)
 {
 	foreach ($input as $key => $value) {
 		if (is_array($value)) {
-			$input[$key] = sanitize_my_options($value);
+			$input[$key] = r3d_sanitize_array($value); // Recursive call
 		} else {
-			$input[$key] = sanitize_text_field($value);
+			// Use wp_kses_post for HTML content, sanitize_text_field for plain text
+			// Choose based on key name - HTML fields vs plain text fields
 			$input[$key] = wp_kses_post($value);
 		}
 	}
